@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Forum;
+use App\Http\Controllers\AuthUserTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -16,6 +17,9 @@ class ForumController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
+
+     use AuthUserTrait;
+
     public function __construct()
     {
         return auth()->shouldUse('api');
@@ -35,22 +39,9 @@ class ForumController extends Controller
      */
     public function store(Request $request)
     {
-       $validator = Validator::make(request()->all(), [
-            'title' => 'required|min:3',
-            'body' => 'required|min:5',
-            'category' => 'required',
-        ]);
-
-        if ($validator->fails()) {
-           return response()->json($validator->messages());
-        }
-
-        // $user = auth()->user();
-        try{
-            $user = auth()->userOrFail();            
-        } catch (\Tymon\JWTAuth\Exceptions\UserNotDefinedException $e){
-            return response()->json(['message' => 'not authenticated, you have login first']);
-        }
+        $this->validateRequest();
+        $user = $this->getAuthUser();
+        
 
         $user->forums()->create([
             'title' => request('title'),
@@ -71,7 +62,7 @@ class ForumController extends Controller
      */
     public function show($id)
     {
-        return Forum::with('user:id,username')->find($id);
+        return Forum::with('user:id,username', 'comments.user:id,username')->find($id);
     }
 
     /**
@@ -83,8 +74,37 @@ class ForumController extends Controller
      */
     public function update(Request $request, $id)
     {
-        //
+        $this->validateRequest();
+        $forum = Forum::find($id);        
+
+       $this->checkOwnership($forum->user_id);
+
+        $forum->update([
+            'title' => request('title'),
+            'body' => request('body'),
+            'category' => request('category')
+        ]);
+
+        //generate token, auto login
+        return response()->json(['message' => 'Successfully updated']);
     }
+    private function validateRequest()
+    {
+
+        $validator = Validator::make(request()->all(),[
+            'title' => 'required|min:3',
+            'body' => 'required|min:5',
+            'category' => 'required'
+        ]);
+
+        if ($validator->fails()) {
+           response()->json($validator->messages())->send();
+           exit;
+        }
+
+    }
+    
+ 
 
     /**
      * Remove the specified resource from storage.
@@ -94,6 +114,14 @@ class ForumController extends Controller
      */
     public function destroy($id)
     {
-        //
+        $forum = Forum::find($id);  
+        $this->checkOwnership($forum->user_id);
+
+        $forum->delete();
+
+        //generate token, auto login
+        return response()->json(['message' => 'Successfully delete']);
     }
+    
+   
 }
